@@ -30,6 +30,20 @@ public class Main {
 
     transactions.stream().limit(10).forEach(IO::println);
 
+    IO.println("--------------------------------------------------------------");
+
+    List<Transaction> transactionsBadData = transactionIngestor.read("data/paysim_with_bad_data.csv");
+    IO.println(transactionsBadData.size());
+
+    transactionsBadData.forEach(IO::println);
+
+    //tentando criar objeto invalido
+//    new Transaction(1, TransactionType.PAYMENT, new BigDecimal("9838.64"),
+//        null,
+//        new TransactionCustomer("M1979787155", new BigDecimal("0.0"), new BigDecimal("0.0")),
+//        false, false
+//    );
+
   }
 
 }
