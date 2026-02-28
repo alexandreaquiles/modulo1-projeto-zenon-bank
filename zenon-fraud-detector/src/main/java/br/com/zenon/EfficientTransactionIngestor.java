@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
@@ -15,9 +16,11 @@ public class EfficientTransactionIngestor {
 
   public static final int LINE_BATCH_SIZE = 2_500;
 
+  private final Semaphore dbPermits = new Semaphore(10);
+
   public void readAsBatch(String filename, Consumer<List<Transaction>> batchConsumer) {
     Path path = Path.of(filename);
-    try (ExecutorService executor = Executors.newFixedThreadPool(10);
+    try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
          Stream<String> lines = Files.lines(path).skip(1)) {
 
       var iterator = lines.iterator();
@@ -31,7 +34,13 @@ public class EfficientTransactionIngestor {
         if (lineBatch.size() >= LINE_BATCH_SIZE) {
           IO.println("Executando batch ingestor...");
           final List<String> currentLineBatch = List.copyOf(lineBatch);
-          executor.submit(() -> executeBatch(currentLineBatch, batchConsumer));
+          executor.submit(() -> {
+            try {
+              executeBatch(currentLineBatch, batchConsumer);
+            } catch (Exception e) {
+              e.printStackTrace();
+            }
+          });
           lineBatch.clear();
         }
 
@@ -40,7 +49,13 @@ public class EfficientTransactionIngestor {
       if (!lineBatch.isEmpty()) {
         IO.println("Executando batch final ingestor...");
         final List<String> currentLineBatch = List.copyOf(lineBatch);
-        executor.submit(() -> executeBatch(currentLineBatch, batchConsumer));
+        executor.submit(() -> {
+          try {
+            executeBatch(currentLineBatch, batchConsumer);
+          } catch (Exception e) {
+            e.printStackTrace();
+          }
+        });
       }
 
     } catch (Exception ex) {
@@ -55,7 +70,18 @@ public class EfficientTransactionIngestor {
         .filter(Optional::isPresent)
         .map(Optional::get)
         .toList();
-    batchConsumer.accept(transactionBatch);
+
+    try {
+      dbPermits.acquire();
+      try {
+        batchConsumer.accept(transactionBatch);
+      } finally {
+        dbPermits.release();
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+
   }
 
 
